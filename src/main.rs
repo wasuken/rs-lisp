@@ -52,39 +52,77 @@ fn lexer(s: &str) -> Vec<String> {
 	return result
 }
 
+#[derive(PartialEq)]
+#[derive(Debug)]
 enum TokenType {
+	TOP,
 	LPAREN,
 	RPAREN,
 	VARIABLE,
 	NUMBER,
 	STRING,
+	SFORMULA,
 	UNKNOWN,
 }
 
-struct Token {
+#[derive(PartialEq)]
+#[derive(Debug)]
+struct TokenContext{
 	token_type: TokenType,
+	// SFormulaの場合に使うフィールド
+	parent: Option<usize>,
+	// 値の場合に使うフィールド
 	value: String,
-	children: Vec<Token>,
+	nest: usize,
 }
 
-fn parser(nodes: &Vec<String>) -> Vec<Token> {
-	let mut result = Vec::new();
+fn list_tokens(nodes: &Vec<String>) -> Vec<TokenContext> {
+	let mut tokens = Vec::new();
+
 	for x in nodes {
 		let token_type = match x {
 			x if Regex::new(r"^\(").unwrap().is_match(x) => TokenType::LPAREN,
 			x if Regex::new(r"^\)").unwrap().is_match(x) => TokenType::RPAREN,
 			x if Regex::new(r"^[0-9|\.]+").unwrap().is_match(x) => TokenType::NUMBER,
-			x if Regex::new(r"^[a-z|A-Z|\-|_]|]+").unwrap().is_match(x) => TokenType::VARIABLE,
+			x if Regex::new(r"^[a-z|A-Z|\-|_|\+|\*|/]+").unwrap().is_match(x) => TokenType::VARIABLE,
 			x if Regex::new("^\"").unwrap().is_match(x) => TokenType::STRING,
 			_ => TokenType::UNKNOWN
 		};
-		result.push(Token{
+		tokens.push(TokenContext{
 			token_type: token_type,
+			parent: None,
 			value: x.to_string(),
-			children: Vec::new()
+			nest: 0,
 		});
 	}
-	return result
+	return tokens
+}
+
+fn parser(nodes: &Vec<String>) -> Vec<TokenContext> {
+	let mut tokens = list_tokens(nodes);
+	let mut nest = 0;
+	let mut parent = None;
+
+	for i in 0..tokens.len() {
+		if tokens[i].token_type == TokenType::LPAREN {
+			tokens[i].nest = nest;
+			tokens[i].parent = parent;
+			parent = Some(i);
+			nest+=1;
+		}else if tokens[i].token_type == TokenType::RPAREN {
+			parent = match parent {
+				Some(i) => tokens[i].parent,
+				None => None
+			};
+			nest-=1;
+			tokens[i].parent = parent;
+			tokens[i].nest = nest;
+		}else{
+			tokens[i].parent = parent;
+			tokens[i].nest = nest;
+		}
+	}
+	return tokens
 }
 
 fn eval(s: &str){
@@ -127,5 +165,37 @@ mod tests {
 		let result4 = lexer("(print \"hoge fuga \")");
 		let expect4 = vec!["(", "print", "\"hoge fuga \"", ")"];
 		assert_eq!(expect4, result4);
+	}
+	#[test]
+	fn parser_test(){
+		let result = parser(&lexer("(+ 1 2)"));
+		let expect = vec![
+			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: None, nest: 0},
+			TokenContext{token_type: TokenType::VARIABLE, value: "+".to_string(), parent: Some(0), nest: 1},
+			TokenContext{token_type: TokenType::NUMBER, value: "1".to_string(), parent: Some(0), nest: 1},
+			TokenContext{token_type: TokenType::NUMBER, value: "2".to_string(), parent: Some(0), nest: 1},
+			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: None, nest: 0},
+		];
+		assert_eq!(expect, result);
+		let result2 = parser(&lexer("(+ (* 1 2) (- 10 2))"));
+		let expect2 = vec![
+			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: None, nest: 0},
+			TokenContext{token_type: TokenType::VARIABLE, value: "+".to_string(), parent: Some(0), nest: 1},
+
+			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: Some(0), nest: 1},
+			TokenContext{token_type: TokenType::VARIABLE, value: "*".to_string(), parent: Some(2), nest: 2},
+			TokenContext{token_type: TokenType::NUMBER, value: "1".to_string(), parent: Some(2), nest: 2},
+			TokenContext{token_type: TokenType::NUMBER, value: "2".to_string(), parent: Some(2), nest: 2},
+			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: Some(0), nest: 1},
+
+			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: Some(0), nest: 1},
+			TokenContext{token_type: TokenType::VARIABLE, value: "-".to_string(), parent: Some(7), nest: 2},
+			TokenContext{token_type: TokenType::NUMBER, value: "10".to_string(), parent: Some(7), nest: 2},
+			TokenContext{token_type: TokenType::NUMBER, value: "2".to_string(), parent: Some(7), nest: 2},
+			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: Some(0), nest: 1},
+
+			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: None, nest: 0},
+		];
+		assert_eq!(expect2, result2);
 	}
 }
