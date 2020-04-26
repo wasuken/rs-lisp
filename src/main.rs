@@ -62,6 +62,7 @@ enum TokenType {
 	NUMBER,
 	STRING,
 	SFORMULA,
+	QUOTE,
 	UNKNOWN,
 }
 
@@ -73,7 +74,7 @@ struct TokenContext{
 	parent: Option<usize>,
 	// 値の場合に使うフィールド
 	value: String,
-	nest: usize,
+	index: usize,
 }
 
 fn list_tokens(nodes: &Vec<String>) -> Vec<TokenContext> {
@@ -92,7 +93,7 @@ fn list_tokens(nodes: &Vec<String>) -> Vec<TokenContext> {
 			token_type: token_type,
 			parent: None,
 			value: x.to_string(),
-			nest: 0,
+			index: 0,
 		});
 	}
 	return tokens
@@ -100,30 +101,58 @@ fn list_tokens(nodes: &Vec<String>) -> Vec<TokenContext> {
 
 fn parser(nodes: &Vec<String>) -> Vec<TokenContext> {
 	let mut tokens = list_tokens(nodes);
-	let mut nest = 0;
 	let mut parent = None;
 
 	for i in 0..tokens.len() {
+		tokens[i].index = i;
 		if tokens[i].token_type == TokenType::LPAREN {
-			tokens[i].nest = nest;
 			tokens[i].parent = parent;
 			parent = Some(i);
-			nest+=1;
 		}else if tokens[i].token_type == TokenType::RPAREN {
 			parent = match parent {
 				Some(i) => tokens[i].parent,
 				None => None
 			};
-			nest-=1;
 			tokens[i].parent = parent;
-			tokens[i].nest = nest;
 		}else{
 			tokens[i].parent = parent;
-			tokens[i].nest = nest;
 		}
 	}
 	return tokens
 }
+
+struct LispEnv {
+	variables: Vec<(String, TokenType, String)>,
+}
+
+fn default_env(env: &mut LispEnv) {
+	// 四則演算
+	env.variables.push(("+".to_string(), TokenType::SFORMULA, "(lambda (x y) (+ x y))".to_string()));
+	env.variables.push(("-".to_string(), TokenType::SFORMULA, "(lambda (x y) (- x y))".to_string()));
+	env.variables.push(("/".to_string(), TokenType::SFORMULA, "(lambda (x y) (/ x y))".to_string()));
+	env.variables.push(("*".to_string(), TokenType::SFORMULA, "(lambda (x y) (* x y))".to_string()));
+
+	// 配列系
+
+	// 数学系
+}
+
+// fn sformula_analysis(tokens: Vec<TokenContext>, env: &mut LispEnv) -> (TokenType, String) {
+// 	// for i in 1..tokens.len() {
+// 	// 	let result = match tokens[i].token_type {
+// 	// 		// 左括弧を検出した時点で次の右括弧まで読み込む
+// 	// 		TokenType::LPAREN => ,
+// 	// 	};
+// 	// }
+// }
+
+// fn semantic_analysis(tokens: &Vec<TokenContext>, env: &mut LispEnv) {
+// 	for i in 0..tokens.len() {
+// 		match tokens[i].token_type {
+// 			TokenType::LPAREN =>
+// 		}
+// 	}
+// }
 
 fn eval(s: &str){
 	// 字句解析
@@ -170,31 +199,31 @@ mod tests {
 	fn parser_test(){
 		let result = parser(&lexer("(+ 1 2)"));
 		let expect = vec![
-			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: None, nest: 0},
-			TokenContext{token_type: TokenType::VARIABLE, value: "+".to_string(), parent: Some(0), nest: 1},
-			TokenContext{token_type: TokenType::NUMBER, value: "1".to_string(), parent: Some(0), nest: 1},
-			TokenContext{token_type: TokenType::NUMBER, value: "2".to_string(), parent: Some(0), nest: 1},
-			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: None, nest: 0},
+			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: None, index: 0},
+			TokenContext{token_type: TokenType::VARIABLE, value: "+".to_string(), parent: Some(0), index: 1},
+			TokenContext{token_type: TokenType::NUMBER, value: "1".to_string(), parent: Some(0), index: 2},
+			TokenContext{token_type: TokenType::NUMBER, value: "2".to_string(), parent: Some(0), index: 3},
+			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: None, index: 4},
 		];
 		assert_eq!(expect, result);
 		let result2 = parser(&lexer("(+ (* 1 2) (- 10 2))"));
 		let expect2 = vec![
-			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: None, nest: 0},
-			TokenContext{token_type: TokenType::VARIABLE, value: "+".to_string(), parent: Some(0), nest: 1},
+			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: None, index: 0},
+			TokenContext{token_type: TokenType::VARIABLE, value: "+".to_string(), parent: Some(0), index: 1},
 
-			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: Some(0), nest: 1},
-			TokenContext{token_type: TokenType::VARIABLE, value: "*".to_string(), parent: Some(2), nest: 2},
-			TokenContext{token_type: TokenType::NUMBER, value: "1".to_string(), parent: Some(2), nest: 2},
-			TokenContext{token_type: TokenType::NUMBER, value: "2".to_string(), parent: Some(2), nest: 2},
-			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: Some(0), nest: 1},
+			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: Some(0), index: 2},
+			TokenContext{token_type: TokenType::VARIABLE, value: "*".to_string(), parent: Some(2), index: 3},
+			TokenContext{token_type: TokenType::NUMBER, value: "1".to_string(), parent: Some(2), index: 4},
+			TokenContext{token_type: TokenType::NUMBER, value: "2".to_string(), parent: Some(2), index: 5},
+			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: Some(0), index: 6},
 
-			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: Some(0), nest: 1},
-			TokenContext{token_type: TokenType::VARIABLE, value: "-".to_string(), parent: Some(7), nest: 2},
-			TokenContext{token_type: TokenType::NUMBER, value: "10".to_string(), parent: Some(7), nest: 2},
-			TokenContext{token_type: TokenType::NUMBER, value: "2".to_string(), parent: Some(7), nest: 2},
-			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: Some(0), nest: 1},
+			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: Some(0), index: 7},
+			TokenContext{token_type: TokenType::VARIABLE, value: "-".to_string(), parent: Some(7), index: 8},
+			TokenContext{token_type: TokenType::NUMBER, value: "10".to_string(), parent: Some(7), index: 9},
+			TokenContext{token_type: TokenType::NUMBER, value: "2".to_string(), parent: Some(7), index: 10},
+			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: Some(0), index: 11},
 
-			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: None, nest: 0},
+			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: None, index: 12},
 		];
 		assert_eq!(expect2, result2);
 	}
