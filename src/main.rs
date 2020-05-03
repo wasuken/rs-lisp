@@ -1,4 +1,6 @@
 use regex::Regex;
+use std::fmt::Debug;
+
 fn is_empty_char(c: char) -> bool {
 	return c == ' ' || c == '\n' || c == '\t'
 }
@@ -54,6 +56,7 @@ fn lexer(s: &str) -> Vec<String> {
 
 #[derive(PartialEq)]
 #[derive(Debug)]
+#[derive(Clone)]
 enum TokenType {
 	TOP,
 	LPAREN,
@@ -66,101 +69,134 @@ enum TokenType {
 	UNKNOWN,
 }
 
-#[derive(PartialEq)]
-#[derive(Debug)]
-struct TokenContext{
-	token_type: TokenType,
-	// SFormulaの場合に使うフィールド
-	parent: Option<usize>,
-	// 値の場合に使うフィールド
-	value: String,
-	index: usize,
+#[derive(Clone)]
+enum LispExp {
+	Bool(bool),
+	Symbol(String),
+	String(String),
+	Number(f64),
+	List(Vec<LispExp>),
+	Func(fn(&[LispExp]) -> Option<LispExp>),
 }
 
-fn list_tokens(nodes: &Vec<String>) -> Vec<TokenContext> {
-	let mut tokens = Vec::new();
+impl Debug for LispExp{
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			LispExp::Bool(x) => {
+				f.debug_struct("LispExp")
+					.field("bool", x)
+					.finish()
+			},
+			LispExp::List(x) => {
+				f.debug_struct("LispExp")
+					.field("list", x)
+					.finish()
+			},
+			LispExp::Number(x) => {
+				f.debug_struct("LispExp")
+					.field("number", x)
+					.finish()
+			},
+			LispExp::String(x) => {
+				f.debug_struct("LispExp")
+					.field("string", x)
+					.finish()
+			},
+			LispExp::Symbol(x) => {
+				f.debug_struct("LispExp")
+					.field("symbol", x)
+					.finish()
+			},
+			_ => {
+				f.debug_struct("unknown")
+					.finish()
+			},
+		}
+    }
+}
 
-	for x in nodes {
-		let token_type = match x {
-			x if Regex::new(r"^\(").unwrap().is_match(x) => TokenType::LPAREN,
-			x if Regex::new(r"^\)").unwrap().is_match(x) => TokenType::RPAREN,
-			x if Regex::new(r"^[0-9|\.]+").unwrap().is_match(x) => TokenType::NUMBER,
-			x if Regex::new(r"^[a-z|A-Z|\-|_|\+|\*|/]+").unwrap().is_match(x) => TokenType::VARIABLE,
-			x if Regex::new("^\"").unwrap().is_match(x) => TokenType::STRING,
-			_ => TokenType::UNKNOWN
-		};
-		tokens.push(TokenContext{
-			token_type: token_type,
-			parent: None,
-			value: x.to_string(),
-			index: 0,
-		});
+impl PartialEq for LispExp {
+	fn eq(&self, other: &Self) -> bool {
+        match self {
+			LispExp::Bool(x) => x == match other {
+				LispExp::Bool(y) => y,
+				_ => &false
+			},
+			LispExp::List(x) => Some(x) == match other {
+				LispExp::List(y) => Some(y),
+				_ => None
+			},
+			LispExp::Number(x) => Some(x) == match other {
+				LispExp::Number(y) => Some(y),
+				_ => None
+			},
+			LispExp::String(x) => Some(x) == match other {
+				LispExp::String(y) => Some(y),
+				_ => None
+			},
+			LispExp::Symbol(x) => Some(x) == match other {
+				LispExp::Symbol(y) => Some(y),
+				_ => None
+			},
+			_ => false,
+		}
+    }
+}
+
+fn parser(nodes: &mut Vec<String>) -> LispExp {
+	if nodes.len() <= 0 {
+		return LispExp::Symbol("nil".to_string());
 	}
-	return tokens
-}
 
-fn parser(nodes: &Vec<String>) -> Vec<TokenContext> {
-	let mut tokens = list_tokens(nodes);
-	let mut parent = None;
+	let token: String = nodes.remove(0);
 
-	for i in 0..tokens.len() {
-		tokens[i].index = i;
-		if tokens[i].token_type == TokenType::LPAREN {
-			tokens[i].parent = parent;
-			parent = Some(i);
-		}else if tokens[i].token_type == TokenType::RPAREN {
-			parent = match parent {
-				Some(i) => tokens[i].parent,
-				None => None
+	match token {
+		_ if token == "(" => {
+			let mut l = Vec::new();
+			while nodes[0] != ")" {
+				l.push(parser(nodes));
+			}
+			nodes.remove(0);
+			return LispExp::List(l);
+		},
+		_ => {
+			return match token {
+				_ if Regex::new(r"^[0-9|\.]+").unwrap().is_match(&token) =>
+					LispExp::Number(token.parse::<f64>().unwrap()),
+				_ if Regex::new("^\"").unwrap().is_match(&token) =>
+					LispExp::String(token.to_string()),
+				_ => LispExp::Symbol(token.to_string()),
 			};
-			tokens[i].parent = parent;
-		}else{
-			tokens[i].parent = parent;
 		}
 	}
-	return tokens
 }
 
 struct LispEnv {
-	variables: Vec<(String, TokenType, String)>,
+	variables: Vec<(String, LispExp)>,
 }
 
 fn default_env(env: &mut LispEnv) {
 	// 四則演算
-	env.variables.push(("+".to_string(), TokenType::SFORMULA, "(lambda (x y) (+ x y))".to_string()));
-	env.variables.push(("-".to_string(), TokenType::SFORMULA, "(lambda (x y) (- x y))".to_string()));
-	env.variables.push(("/".to_string(), TokenType::SFORMULA, "(lambda (x y) (/ x y))".to_string()));
-	env.variables.push(("*".to_string(), TokenType::SFORMULA, "(lambda (x y) (* x y))".to_string()));
 
 	// 配列系
 
 	// 数学系
 }
 
-// fn sformula_analysis(tokens: Vec<TokenContext>, env: &mut LispEnv) -> (TokenType, String) {
-// 	// for i in 1..tokens.len() {
-// 	// 	let result = match tokens[i].token_type {
-// 	// 		// 左括弧を検出した時点で次の右括弧まで読み込む
-// 	// 		TokenType::LPAREN => ,
-// 	// 	};
-// 	// }
-// }
+// fn semantic_analysis(tokens: LispExp, env: &mut LispEnv) -> LispExp {
 
-// fn semantic_analysis(tokens: &Vec<TokenContext>, env: &mut LispEnv) {
-// 	for i in 0..tokens.len() {
-// 		match tokens[i].token_type {
-// 			TokenType::LPAREN =>
-// 		}
-// 	}
 // }
 
 fn eval(s: &str){
+	// 環境変数
+	let mut env = &mut LispEnv{variables: Vec::new()};
+	default_env(env);
 	// 字句解析
-	// let nodes = lexer(s);
+	let mut nodes = &mut lexer(s);
 	// 構文解析
-	// parser(&nodes);
+	let parse = parser(nodes);
 	// 意味解析
-	// semantic_analysis();
+	// semantic_analysis(parse, env);
 }
 
 fn main() {
@@ -197,34 +233,22 @@ mod tests {
 	}
 	#[test]
 	fn parser_test(){
-		let result = parser(&lexer("(+ 1 2)"));
-		let expect = vec![
-			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: None, index: 0},
-			TokenContext{token_type: TokenType::VARIABLE, value: "+".to_string(), parent: Some(0), index: 1},
-			TokenContext{token_type: TokenType::NUMBER, value: "1".to_string(), parent: Some(0), index: 2},
-			TokenContext{token_type: TokenType::NUMBER, value: "2".to_string(), parent: Some(0), index: 3},
-			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: None, index: 4},
-		];
+		let mut env = &mut LispEnv{variables: Vec::new()};
+		default_env(env);
+		let result = parser(&mut lexer("(+ 1 2)"));
+		let expect = LispExp::List(vec![LispExp::Symbol("+".to_string()),
+										LispExp::Number(1 as f64),
+										LispExp::Number(2 as f64)]);
 		assert_eq!(expect, result);
-		let result2 = parser(&lexer("(+ (* 1 2) (- 10 2))"));
-		let expect2 = vec![
-			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: None, index: 0},
-			TokenContext{token_type: TokenType::VARIABLE, value: "+".to_string(), parent: Some(0), index: 1},
 
-			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: Some(0), index: 2},
-			TokenContext{token_type: TokenType::VARIABLE, value: "*".to_string(), parent: Some(2), index: 3},
-			TokenContext{token_type: TokenType::NUMBER, value: "1".to_string(), parent: Some(2), index: 4},
-			TokenContext{token_type: TokenType::NUMBER, value: "2".to_string(), parent: Some(2), index: 5},
-			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: Some(0), index: 6},
-
-			TokenContext{token_type: TokenType::LPAREN, value: "(".to_string(), parent: Some(0), index: 7},
-			TokenContext{token_type: TokenType::VARIABLE, value: "-".to_string(), parent: Some(7), index: 8},
-			TokenContext{token_type: TokenType::NUMBER, value: "10".to_string(), parent: Some(7), index: 9},
-			TokenContext{token_type: TokenType::NUMBER, value: "2".to_string(), parent: Some(7), index: 10},
-			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: Some(0), index: 11},
-
-			TokenContext{token_type: TokenType::RPAREN, value: ")".to_string(), parent: None, index: 12},
-		];
+		let result2 = parser(&mut lexer("(+ (* 2 3) (/ 10 2))"));
+		let expect2 = LispExp::List(vec![LispExp::Symbol("+".to_string()),
+										 LispExp::List(vec![LispExp::Symbol("*".to_string()),
+															LispExp::Number(2 as f64),
+															LispExp::Number(3 as f64)]),
+										 LispExp::List(vec![LispExp::Symbol("/".to_string()),
+															LispExp::Number(10 as f64),
+															LispExp::Number(2 as f64)])]);
 		assert_eq!(expect2, result2);
 	}
 }
