@@ -1,5 +1,6 @@
 use regex::Regex;
 use std::fmt::Debug;
+use std::collections::HashMap;
 
 fn is_empty_char(c: char) -> bool {
 	return c == ' ' || c == '\n' || c == '\t'
@@ -52,21 +53,6 @@ fn lexer(s: &str) -> Vec<String> {
 	}
 
 	return result
-}
-
-#[derive(PartialEq)]
-#[derive(Debug)]
-#[derive(Clone)]
-enum TokenType {
-	TOP,
-	LPAREN,
-	RPAREN,
-	VARIABLE,
-	NUMBER,
-	STRING,
-	SFORMULA,
-	QUOTE,
-	UNKNOWN,
 }
 
 #[derive(Clone)]
@@ -172,7 +158,7 @@ fn parser(nodes: &mut Vec<String>) -> LispExp {
 }
 
 struct LispEnv {
-	variables: Vec<(String, LispExp)>,
+	variables: HashMap<String, LispExp>
 }
 
 fn default_env(env: &mut LispEnv) {
@@ -183,9 +169,19 @@ fn default_env(env: &mut LispEnv) {
 	// 数学系
 }
 
-// fn semantic_analysis(tokens: LispExp, env: &mut LispEnv) -> LispExp {
-
-// }
+fn semantic_analysis(node: LispExp, env: &mut LispEnv) -> LispExp {
+	match node {
+		LispExp::Bool(_) | LispExp::Number(_) | LispExp::String(_) => node,
+		LispExp::Symbol(x) => match x {
+			_ if Regex::new(r"^[0-9|\.]+").unwrap().is_match(&x) =>
+				LispExp::Number(x.parse::<f64>().unwrap()),
+			_ if Regex::new("^\"").unwrap().is_match(&x) =>
+				LispExp::String(x),
+			// error
+			_ => LispExp::Symbol(x),
+		},
+	}
+}
 
 fn eval(s: &str){
 	// 環境変数
