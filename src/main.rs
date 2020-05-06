@@ -1,6 +1,7 @@
 use regex::Regex;
 use std::fmt::Debug;
 use std::collections::HashMap;
+use std::error::Error;
 
 fn is_empty_char(c: char) -> bool {
 	return c == ' ' || c == '\n' || c == '\t'
@@ -62,7 +63,7 @@ enum LispExp {
 	String(String),
 	Number(f64),
 	List(Vec<LispExp>),
-	Func(fn(&[LispExp]) -> Option<LispExp>),
+	Func(fn(&Vec<LispExp>) -> Result<LispExp, String>),
 }
 
 impl Debug for LispExp{
@@ -147,7 +148,7 @@ fn parser(nodes: &mut Vec<String>) -> LispExp {
 		},
 		_ => {
 			return match token {
-				_ if Regex::new(r"^[0-9|\.]+").unwrap().is_match(&token) =>
+				_ if Regex::new(r"^[0-9][0-9|\.]*").unwrap().is_match(&token) =>
 					LispExp::Number(token.parse::<f64>().unwrap()),
 				_ if Regex::new("^\"").unwrap().is_match(&token) =>
 					LispExp::String(token.to_string()),
@@ -163,36 +164,84 @@ struct LispEnv {
 
 fn default_env(env: &mut LispEnv) {
 	// 四則演算
+	env.variables.insert("+".to_string(),
+						 LispExp::Func(|params: &Vec<LispExp>| -> Result<LispExp, String> {
+							 let parsed: Vec<Result<f64, String>> = params.iter().map(|x| match x {
+								 LispExp::Number(y) => Ok(*y),
+								 _ => Err("f64 parse error".to_string())
+							 }).collect();
+							 Ok(LispExp::Number(parsed.iter().fold(0.0, |sum, a| sum + a.as_ref().ok().unwrap())))
+						 }));
+	env.variables.insert("-".to_string(),
+						 LispExp::Func(|params: &Vec<LispExp>| -> Result<LispExp, String> {
+							 let parsed: Vec<Result<f64, String>> = params.iter().map(|x| match x {
+								 LispExp::Number(y) => Ok(*y),
+								 _ => Err("f64 parse error".to_string())
+							 }).collect();
+							 Ok(LispExp::Number(parsed[1..].iter().fold(*parsed[0].as_ref().ok().unwrap(),
+																		|sum, a| sum - a.as_ref().ok().unwrap())))
+						 }));
+	env.variables.insert("*".to_string(),
+						 LispExp::Func(|params: &Vec<LispExp>| -> Result<LispExp, String> {
+							 let parsed: Vec<Result<f64, String>> = params.iter().map(|x| match x {
+								 LispExp::Number(y) => Ok(*y),
+								 _ => Err("f64 parse error".to_string())
+							 }).collect();
+							 Ok(LispExp::Number(parsed.iter().fold(0.0, |sum, a| sum * a.as_ref().ok().unwrap())))
+						 }));
+	env.variables.insert("/".to_string(),
+						 LispExp::Func(|params: &Vec<LispExp>| -> Result<LispExp, String> {
+							 let parsed: Vec<Result<f64, String>> = params.iter().map(|x| match x {
+								 LispExp::Number(y) => Ok(*y),
+								 _ => Err("f64 parse error".to_string())
+							 }).collect();
+							 Ok(LispExp::Number(parsed[1..].iter().fold(*parsed[0].as_ref().ok().unwrap(),
+																		|sum, a| sum / a.as_ref().ok().unwrap())))
+						 }));
 
-	// 配列系
+	// リスト系
 
 	// 数学系
 }
 
-fn semantic_analysis(node: LispExp, env: &mut LispEnv) -> LispExp {
+fn semantic_analysis(node: LispExp, env: &mut LispEnv) -> Result<LispExp, String> {
 	match node {
-		LispExp::Bool(_) | LispExp::Number(_) | LispExp::String(_) => node,
+		LispExp::Bool(_) | LispExp::Number(_) | LispExp::String(_) => Ok(node),
 		LispExp::Symbol(x) => match x {
-			_ if Regex::new(r"^[0-9|\.]+").unwrap().is_match(&x) =>
-				LispExp::Number(x.parse::<f64>().unwrap()),
-			_ if Regex::new("^\"").unwrap().is_match(&x) =>
-				LispExp::String(x),
-			// error
-			_ => LispExp::Symbol(x),
+			_ if env.variables.get(&x).is_some() => Ok((*env.variables.get(&x).unwrap()).clone()),
+			_ => Err("Not Found".to_string()),
 		},
+		LispExp::List(x) => {
+			println!("{:?}", x);
+			match &x[0] {
+				LispExp::Symbol(_) => match semantic_analysis(x[0].clone(), env)? {
+					LispExp::Func(z) => {
+						let params: Vec<LispExp> = x[1..].to_vec();
+						let params_eval = params
+							.iter()
+							.map(|xx| semantic_analysis(xx.clone(), env))
+							.collect::<Result<Vec<LispExp>, String>>();
+						z(&params_eval?)
+					},
+					_ => Err("Not Function".to_string()),
+				},
+				_ => Err("Not Function".to_string()),
+			}
+		},
+		_ => Err("Unknown Type".to_string()),
 	}
 }
 
 fn eval(s: &str){
 	// 環境変数
-	let mut env = &mut LispEnv{variables: Vec::new()};
+	let mut env = &mut LispEnv{variables: HashMap::new()};
 	default_env(env);
 	// 字句解析
 	let mut nodes = &mut lexer(s);
 	// 構文解析
 	let parse = parser(nodes);
 	// 意味解析
-	// semantic_analysis(parse, env);
+	println!("{:?}", semantic_analysis(parse, env).ok().unwrap());
 }
 
 fn main() {
@@ -229,7 +278,7 @@ mod tests {
 	}
 	#[test]
 	fn parser_test(){
-		let mut env = &mut LispEnv{variables: Vec::new()};
+		let mut env = &mut LispEnv{variables: HashMap::new()};
 		default_env(env);
 		let result = parser(&mut lexer("(+ 1 2)"));
 		let expect = LispExp::List(vec![LispExp::Symbol("+".to_string()),
@@ -246,5 +295,15 @@ mod tests {
 															LispExp::Number(10 as f64),
 															LispExp::Number(2 as f64)])]);
 		assert_eq!(expect2, result2);
+	}
+	#[test]
+	fn semantic_analysis_test(){
+		let mut env = &mut LispEnv{variables: HashMap::new()};
+		default_env(env);
+		let parse = parser(&mut lexer("(+ 1 2)"));
+		let result = semantic_analysis(parse, env);
+		let expect = LispExp::Number(3 as f64);
+		println!("{:?}", result);
+		assert_eq!(expect, result.ok().unwrap());
 	}
 }
