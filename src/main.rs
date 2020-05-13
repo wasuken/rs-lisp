@@ -1,7 +1,8 @@
 use regex::Regex;
 use std::fmt::Debug;
 use std::collections::HashMap;
-use std::error::Error;
+use std::rc::Rc;
+use std::ops::Deref;
 
 fn is_empty_char(c: char) -> bool {
 	return c == ' ' || c == '\n' || c == '\t'
@@ -57,6 +58,12 @@ fn lexer(s: &str) -> Vec<String> {
 }
 
 #[derive(Clone)]
+struct LispLambda {
+  params: Rc<LispExp>,
+  body: Vec<LispExp>,
+}
+
+#[derive(Clone)]
 enum LispExp {
 	Bool(bool),
 	Symbol(String),
@@ -64,6 +71,11 @@ enum LispExp {
 	Number(f64),
 	List(Vec<LispExp>),
 	Func(fn(&Vec<LispExp>) -> Result<LispExp, String>),
+	Lambda(LispLambda)
+}
+
+struct LispEnv {
+	variables: HashMap<String, LispExp>
 }
 
 impl Debug for LispExp{
@@ -92,6 +104,12 @@ impl Debug for LispExp{
 			LispExp::Symbol(x) => {
 				f.debug_struct("LispExp")
 					.field("symbol", x)
+					.finish()
+			},
+			LispExp::Lambda(x) => {
+				f.debug_struct("LispExp")
+					.field("lambda", &x.params.deref())
+					.field("lambda(body)", &x.body)
 					.finish()
 			},
 			_ => {
@@ -158,10 +176,6 @@ fn parser(nodes: &mut Vec<String>) -> LispExp {
 	}
 }
 
-struct LispEnv {
-	variables: HashMap<String, LispExp>
-}
-
 fn default_env(env: &mut LispEnv) {
 	// 四則演算
 	env.variables.insert("+".to_string(),
@@ -208,12 +222,19 @@ fn semantic_analysis(node: LispExp, env: &mut LispEnv) -> Result<LispExp, String
 	match node {
 		LispExp::Bool(_) | LispExp::Number(_) | LispExp::String(_) => Ok(node),
 		LispExp::Symbol(x) => match x {
-			_ if env.variables.get(&x).is_some() => Ok((*env.variables.get(&x).unwrap()).clone()),
+			_ if env.variables.get(&x).is_some() => {
+				Ok((*env.variables.get(&x).unwrap()).clone())
+			},
 			_ => Err("Not Found".to_string()),
 		},
 		LispExp::List(x) => {
-			println!("{:?}", x);
 			match &x[0] {
+				LispExp::Symbol(y) if y == "lambda" => {
+					Ok(LispExp::Lambda(LispLambda{
+						params: Rc::new(x[1].clone()),
+						body: x[2..].to_vec(),
+					}))
+				},
 				LispExp::Symbol(_) => match semantic_analysis(x[0].clone(), env)? {
 					LispExp::Func(z) => {
 						let params: Vec<LispExp> = x[1..].to_vec();
@@ -303,7 +324,10 @@ mod tests {
 		let parse = parser(&mut lexer("(+ 1 2)"));
 		let result = semantic_analysis(parse, env);
 		let expect = LispExp::Number(3 as f64);
-		println!("{:?}", result);
 		assert_eq!(expect, result.ok().unwrap());
+		// lambda
+		let parse2 = parser(&mut lexer("((lambda (x y) (+ x y)) 1 2)"));
+		let result2 = semantic_analysis(parse2, env);
+		assert_eq!(expect, result2.ok().unwrap());
 	}
 }
